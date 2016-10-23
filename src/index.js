@@ -641,7 +641,7 @@ export function $shape<P: Props, RT: ObjectType<P, *>>(type: RT, name?: string):
 // objects
 //
 
-export type Props = {[key: string]: Type<any>};
+export type Props = {[key: string]: Type<*>};
 
 export class ObjectType<P: Props, T> extends Type<T> {
   props: P;
