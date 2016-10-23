@@ -34,13 +34,17 @@ export type ValidationError = {
 
 export type ValidationResult<T> = Either<Array<ValidationError>, T>;
 
+// Note: if a validation succeeded must return `value`
 export type Validation<T> = (value: mixed, context: Context) => ValidationResult<T>;
 
-export type Type<T> = {
+export class Type<T> {
   name: string;
-  // validate MUST return `value` if validation succeeded
   validate: Validation<T>;
-};
+  constructor(name: string, validate: Validation<T>) {
+    this.name = name
+    this.validate = validate
+  }
+}
 
 //
 // helpers
@@ -70,7 +74,7 @@ function getFunctionName(f: Function): string {
   return f.displayName || f.name || `<function${f.length}>`
 }
 
-function getObjectKeys<O: { [key: string]: any }>(o: O): $ObjMap<O, () => true> {
+function getObjectKeys<O: Object>(o: O): { [key: $Keys<O>]: boolean } {
   const keys = {}
   for (let k in o) {
     keys[k] = true
@@ -188,188 +192,171 @@ export function assert(guard: boolean, message?: () => string): void {
 // literals
 //
 
-export interface LiteralType<T> extends Type<T> {
-  kind: 'literal';
+export class LiteralType<T> extends Type<T> {
   value: T;
+  constructor(name: string, validate: Validation<T>, value: T) {
+    super(name, validate)
+    this.value = value
+  }
 }
 
 export function literal<T: string | number | boolean, O: $Exact<{ value: T }>>(o: O): LiteralType<$PropertyType<O, 'value'>> { // eslint-disable-line no-unused-vars
   const value = o.value
-  return {
-    kind: 'literal',
-    value,
-    name: JSON.stringify(value),
-    validate: (v, c) => {
-      return v === value ? success(value) : failure(v, c)
-    }
-  }
+  return new LiteralType(
+    JSON.stringify(value),
+    (v, c) => v === value ? success(value) : failure(v, c),
+    value
+  )
 }
 
 //
 // class instances
 //
 
-export interface InstanceOfType<T> extends Type<T> {
-  kind: 'instanceOf';
+export class InstanceOfType<T> extends Type<T> {
   ctor: Class<T>;
+  constructor(name: string, validate: Validation<T>, ctor: Class<T>) {
+    super(name, validate)
+    this.ctor = ctor
+  }
 }
 
 export function instanceOf<T>(ctor: Class<T>, name?: string): InstanceOfType<T> {
-  return {
-    kind: 'instanceOf',
-    ctor,
-    name: name || getFunctionName(ctor),
-    validate: (v, c) => v instanceof ctor ? success(v) : failure(v, c)
-  }
+  return new InstanceOfType(
+    name || getFunctionName(ctor),
+    (v, c) => v instanceof ctor ? success(v) : failure(v, c),
+    ctor
+  )
 }
 
 //
 // classes
 //
 
-export interface ClassType<T> extends Type<Class<T>> {
-  kind: 'class';
-  ctor: Class<T>;
-}
-
-export function getDefaultClassOfName<T>(ctor: Class<T>): string {
-  return `Class<${getFunctionName(ctor)}>`
-}
-
-export function classOf<T>(ctor: Class<T>, name?: string): ClassType<T> {
-  const type = refinement(fun, f => f === ctor || f.prototype instanceof ctor, name)
-  return {
-    kind: 'class',
-    ctor,
-    name: name || getDefaultClassOfName(ctor),
-    validate: (v, c) => type.validate(v, c)
+export class ClassType<T> extends Type<T> {
+  ctor: T;
+  constructor(name: string, validate: Validation<T>, ctor: T) {
+    super(name, validate)
+    this.ctor = ctor
   }
+}
+
+export function classOf<T>(ctor: Class<T>, name?: string): ClassType<Class<T>> {
+  const type = refinement(fun, f => f === ctor || f.prototype instanceof ctor, name)
+  return new ClassType(
+    name || `Class<${getFunctionName(ctor)}>`,
+    (v, c) => type.validate(v, c),
+    ctor
+  )
 }
 
 //
 // irreducibles
 //
 
-export interface IrreducibleType<T> extends Type<T> {
-  kind: 'irreducible';
-}
-
 function isNil(v: mixed) /* : boolean %checks */ {
   return v === void 0 || v === null
 }
 
-export const nil: IrreducibleType<void | null> = {
-  kind: 'irreducible',
-  name: 'nil',
-  validate: (v, c) => isNil(v) ? success(v) : failure(v, c)
-}
+export const nil: Type<void | null> = new Type(
+  'nil',
+  (v, c) => isNil(v) ? success(v) : failure(v, c)
+)
 
-export const any: IrreducibleType<any> = {
-  kind: 'irreducible',
-  name: 'any',
-  validate: (v, c) => success(v) // eslint-disable-line no-unused-vars
-}
+export const any: Type<any> = new Type(
+  'any',
+  (v, c) => success(v) // eslint-disable-line no-unused-vars
+)
 
 function isString(v: mixed) /* : boolean %checks */ {
   return typeof v === 'string'
 }
 
-export const string: IrreducibleType<string> = {
-  kind: 'irreducible',
-  name: 'string',
-  validate: (v, c) => isString(v) ? success(v) : failure(v, c)
-}
+export const string: Type<string> = new Type(
+  'string',
+  (v, c) => isString(v) ? success(v) : failure(v, c)
+)
 
 function isNumber(v: mixed) /* : boolean %checks */ {
   return typeof v === 'number' && isFinite(v) && !isNaN(v)
 }
 
-export const number: IrreducibleType<number> = {
-  kind: 'irreducible',
-  name: 'number',
-  validate: (v, c) => isNumber(v) ? success(v) : failure(v, c)
-}
+export const number: Type<number> = new Type(
+  'number',
+  (v, c) => isNumber(v) ? success(v) : failure(v, c)
+)
 
 function isBoolean(v: mixed) /* : boolean %checks */ {
   return typeof v === 'boolean'
 }
 
-export const boolean: IrreducibleType<boolean> = {
-  kind: 'irreducible',
-  name: 'boolean',
-  validate: (v, c) => isBoolean(v) ? success(v) : failure(v, c)
-}
+export const boolean: Type<boolean> = new Type(
+  'boolean',
+  (v, c) => isBoolean(v) ? success(v) : failure(v, c)
+)
 
-export const arr: IrreducibleType<Array<mixed>> = {
-  kind: 'irreducible',
-  name: 'Array',
-  validate: (v, c) => Array.isArray(v) ? success(v) : failure(v, c)
-}
+export const arr: Type<Array<mixed>> = new Type(
+  'Array',
+  (v, c) => Array.isArray(v) ? success(v) : failure(v, c)
+)
 
 function isObject(v: mixed) /* : boolean %checks */ {
   return !isNil(v) && typeof v === 'object' && !Array.isArray(v)
 }
 
-export const obj: IrreducibleType<Object> = {
-  kind: 'irreducible',
-  name: 'Object',
-  validate: (v, c) => isObject(v) ? success(v) : failure(v, c)
-}
+export const obj: Type<Object> = new Type(
+  'Object',
+  (v, c) => isObject(v) ? success(v) : failure(v, c)
+)
 
 function isFunction(v: mixed) /* : boolean %checks */ {
   return typeof v === 'function'
 }
 
-export const fun: IrreducibleType<Function> = {
-  kind: 'irreducible',
-  name: 'Function',
-  validate: (v, c) => isFunction(v) ? success(v) : failure(v, c)
-}
+export const fun: Type<Function> = new Type(
+  'Function',
+  (v, c) => isFunction(v) ? success(v) : failure(v, c)
+)
 
 //
 // arrays
 //
 
-export interface ArrayType<RT> extends Type<Array<TypeOf<RT>>> {
-  kind: 'array';
+export class ArrayType<RT, T> extends Type<T> {
   type: RT;
-}
-
-export function getDefaultListName<T>(type: Type<T>): string {
-  return `Array<${getTypeName(type)}>`
-}
-
-export function array<T, RT: Type<T>>(type: RT, name?: string): ArrayType<RT> { // eslint-disable-line no-unused-vars
-  return {
-    kind: 'array',
-    type,
-    name: name || getDefaultListName(type),
-    validate: (v, c) => {
-      return either.chain((a: Array<mixed>) => {
-        const errors = []
-        for (let i = 0, len = a.length; i < len; i++) {
-          const validation = type.validate(a[i], c.concat(getContextEntry(String(i), type)))
-          if (isFailure(validation)) {
-            pushAll(errors, fromFailure(validation))
-          }
-        }
-        return errors.length ? failures(errors) : success(unsafeCoerce(a))
-      }, arr.validate(v, c))
-    }
+  constructor(name: string, validate: Validation<T>, type: RT) {
+    super(name, validate)
+    this.type = type
   }
+}
+
+export function array<T, RT: Type<T>>(type: RT, name?: string): ArrayType<RT, Array<T>> {
+  return new ArrayType(
+    name || `Array<${getTypeName(type)}>`,
+    (v, c) => either.chain(a => {
+      const errors = []
+      for (let i = 0, len = a.length; i < len; i++) {
+        const validation = type.validate(a[i], c.concat(getContextEntry(String(i), type)))
+        if (isFailure(validation)) {
+          pushAll(errors, fromFailure(validation))
+        }
+      }
+      return errors.length ? failures(errors) : success(unsafeCoerce(a))
+    }, arr.validate(v, c)),
+    type
+  )
 }
 
 //
 // unions
 //
 
-export interface UnionType<TS, T> extends Type<T> {
-  kind: 'union';
+export class UnionType<TS, T> extends Type<T> {
   types: TS;
-}
-
-export function getDefaultUnionName(types: Array<Type<mixed>>): string {
-  return `(${types.map(getTypeName).join(' | ')})`
+  constructor(name: string, validate: Validation<T>, types: TS) {
+    super(name, validate)
+    this.types = types
+  }
 }
 
 declare function union<A, B, C, D, E, TA: Type<A>, TB: Type<B>, TC: Type<C>, TD: Type<D>, TE: Type<E>, TS: [TA, TB, TC, TD, TE]>(types: TS, name?: string) : UnionType<TS, A | B | C | D | E>; // eslint-disable-line no-redeclare
@@ -378,11 +365,9 @@ declare function union<A, B, C, TA: Type<A>, TB: Type<B>, TC: Type<C>, TS: [TA, 
 declare function union<A, B, TA: Type<A>, TB: Type<B>, TS: [TA, TB]>(types: TS, name?: string) : UnionType<TS, A | B>; // eslint-disable-line no-redeclare
 
 export function union<TS: Array<Type<mixed>>>(types: TS, name?: string): UnionType<TS, *> {  // eslint-disable-line no-redeclare
-  return {
-    kind: 'union',
-    types,
-    name: name || getDefaultUnionName(types),
-    validate: (v, c) => {
+  return new UnionType(
+    name || `(${types.map(getTypeName).join(' | ')})`,
+    (v, c) => {
       for (let i = 0, len = types.length; i < len; i++) {
         const validation = types[i].validate(v, c)
         if (isSuccess(validation)) {
@@ -390,21 +375,21 @@ export function union<TS: Array<Type<mixed>>>(types: TS, name?: string): UnionTy
         }
       }
       return failure(v, c)
-    }
-  }
+    },
+    types
+  )
 }
 
 //
 // tuples
 //
 
-export interface TupleType<TS, T> extends Type<T> {
-  kind: 'tuple';
+export class TupleType<TS, T> extends Type<T> {
   types: TS;
-}
-
-export function getDefaultTupleName(types: Array<Type<mixed>>): string {
-  return `[${types.map(getTypeName).join(', ')}]`
+  constructor(name: string, validate: Validation<T>, types: TS) {
+    super(name, validate)
+    this.types = types
+  }
 }
 
 declare function tuple<A, B, C, D, E, TA: Type<A>, TB: Type<B>, TC: Type<C>, TD: Type<D>, TE: Type<E>, TS: [TA, TB, TC, TD, TE]>(types: TS, name?: string) : TupleType<TS, [A, B, C, D, E]>; // eslint-disable-line no-redeclare
@@ -413,37 +398,33 @@ declare function tuple<A, B, C, TA: Type<A>, TB: Type<B>, TC: Type<C>, TS: [TA, 
 declare function tuple<A, B, TA: Type<A>, TB: Type<B>, TS: [TA, TB]>(types: TS, name?: string) : TupleType<TS, [A, B]>; // eslint-disable-line no-redeclare
 
 export function tuple<TS: Array<Type<mixed>>>(types: TS, name?: string): TupleType<TS, *> {  // eslint-disable-line no-redeclare
-  return {
-    kind: 'tuple',
-    types,
-    name: name || getDefaultTupleName(types),
-    validate: (v, c) => {
-      return either.chain((a: Array<mixed>) => {
-        const errors = []
-        for (let i = 0, len = types.length; i < len; i++) {
-          const type = types[i]
-          const validation = type.validate(a[i], c.concat(getContextEntry(String(i), type)))
-          if (isFailure(validation)) {
-            pushAll(errors, fromFailure(validation))
-          }
+  return new TupleType(
+    name || `[${types.map(getTypeName).join(', ')}]`,
+    (v, c) => either.chain(a => {
+      const errors = []
+      for (let i = 0, len = types.length; i < len; i++) {
+        const type = types[i]
+        const validation = type.validate(a[i], c.concat(getContextEntry(String(i), type)))
+        if (isFailure(validation)) {
+          pushAll(errors, fromFailure(validation))
         }
-        return errors.length ? failures(errors) : success(a)
-      }, arr.validate(v, c))
-    }
-  }
+      }
+      return errors.length ? failures(errors) : success(a)
+    }, arr.validate(v, c)),
+    types
+  )
 }
 
 //
 // intersections
 //
 
-export interface IntersectionType<TS, T> extends Type<T> {
-  kind: 'intersection';
+export class IntersectionType<TS, T> extends Type<T> {
   types: TS;
-}
-
-export function getDefaultIntersectionName(types: Array<Type<mixed>>): string {
-  return `(${types.map(getTypeName).join(' & ')})`
+  constructor(name: string, validate: Validation<T>, types: TS) {
+    super(name, validate)
+    this.types = types
+  }
 }
 
 declare function intersection<A, B, C, D, E, TA: Type<A>, TB: Type<B>, TC: Type<C>, TD: Type<D>, TE: Type<E>, TS: [TA, TB, TC, TD, TE]>(types: TS, name?: string) : IntersectionType<TS, A & B & C & D & E>; // eslint-disable-line no-redeclare
@@ -452,11 +433,9 @@ declare function intersection<A, B, C, TA: Type<A>, TB: Type<B>, TC: Type<C>, TS
 declare function intersection<A, B, TA: Type<A>, TB: Type<B>, TS: [TA, TB]>(types: TS, name?: string) : IntersectionType<TS, A & B>; // eslint-disable-line no-redeclare
 
 export function intersection<TS: Array<Type<mixed>>>(types: TS, name?: string): IntersectionType<TS, *> {  // eslint-disable-line no-redeclare
-  return {
-    kind: 'intersection',
-    types,
-    name: name || getDefaultIntersectionName(types),
-    validate: (v, c) => {
+  return new IntersectionType(
+    name || `(${types.map(getTypeName).join(' & ')})`,
+    (v, c) => {
       const errors = []
       for (let i = 0, len = types.length; i < len; i++) {
         const type = types[i]
@@ -466,71 +445,66 @@ export function intersection<TS: Array<Type<mixed>>>(types: TS, name?: string): 
         }
       }
       return errors.length ? failures(errors) : success(v)
-    }
-  }
+    },
+    types
+  )
 }
 
 //
 // maybes
 //
 
-export interface MaybeType<RT> extends Type<?TypeOf<RT>> {
-  kind: 'maybe';
+export class MaybeType<RT, T> extends Type<?T> {
   type: RT;
-}
-
-export function getDefaultMaybeName<T>(type: Type<T>): string {
-  return `?${getTypeName(type)}`
-}
-
-export function maybe<T, RT: Type<T>>(type: RT, name?: string): MaybeType<RT> { // eslint-disable-line no-unused-vars
-  return {
-    kind: 'maybe',
-    type,
-    name: name || getDefaultMaybeName(type),
-    validate: (v, c) => {
-      return unsafeCoerce(isNil(v) ? success(v) : type.validate(v, c))
-    }
+  constructor(name: string, validate: Validation<T>, type: RT) {
+    super(name, validate)
+    this.type = type
   }
+}
+
+export function maybe<T, RT: Type<T>>(type: RT, name?: string): MaybeType<RT, T> {
+  return new MaybeType(
+    name || `?${getTypeName(type)}`,
+    (v, c) => unsafeCoerce(isNil(v) ? success(v) : type.validate(v, c)),
+    type
+  )
 }
 
 //
 // map objects
 //
 
-export interface MappingType<RTD, RTC> extends Type<{ [key: TypeOf<RTD>]: TypeOf<RTC> }> {
+export class MappingType<RTD, RTC, T> extends Type<T> {
   kind: 'mapping';
   domain: RTD;
   codomain: RTC;
-}
-
-export function getDefaultMapName<D, C>(domain: Type<D>, codomain: Type<C>): string {
-  return `{ [key: ${getTypeName(domain)}]: ${getTypeName(codomain)} }`
-}
-
-export function mapping<D, RTD: Type<D>, C, RTC: Type<C>>(domain: RTD, codomain: RTC, name?: string): MappingType<RTD, RTC> { // eslint-disable-line no-unused-vars
-  return {
-    kind: 'mapping',
-    domain,
-    codomain,
-    name: name || getDefaultMapName(domain, codomain),
-    validate: (v, c) => {
-      return either.chain(o => {
-        const errors = []
-        for (let k in o) {
-          const domainValidation = domain.validate(k, c.concat(getContextEntry(k, domain)))
-          if (isFailure(domainValidation)) {
-            pushAll(errors, fromFailure(domainValidation))
-          }
-          const codomainValidation = codomain.validate(o[k], c.concat(getContextEntry(k, codomain)))
-          if (isFailure(codomainValidation)) {
-            pushAll(errors, fromFailure(codomainValidation))
-          }
-        }
-        return errors.length ? failures(errors) : success(o)
-      }, obj.validate(v, c))
-    }
+  constructor(name: string, validate: Validation<T>, domain: RTD, codomain: RTC) {
+    super(name, validate)
+    this.domain = domain
+    this.codomain = codomain
   }
+}
+
+export function mapping<D, RTD: Type<D>, C, RTC: Type<C>>(domain: RTD, codomain: RTC, name?: string): MappingType<RTD, RTC, { [key: TypeOf<RTD>]: TypeOf<RTC> }> { // eslint-disable-line no-unused-vars
+  return new MappingType(
+    name || `{ [key: ${getTypeName(domain)}]: ${getTypeName(codomain)} }`,
+    (v, c) => either.chain(o => {
+      const errors = []
+      for (let k in o) {
+        const domainValidation = domain.validate(k, c.concat(getContextEntry(k, domain)))
+        if (isFailure(domainValidation)) {
+          pushAll(errors, fromFailure(domainValidation))
+        }
+        const codomainValidation = codomain.validate(o[k], c.concat(getContextEntry(k, codomain)))
+        if (isFailure(codomainValidation)) {
+          pushAll(errors, fromFailure(codomainValidation))
+        }
+      }
+      return errors.length ? failures(errors) : success(o)
+    }, obj.validate(v, c)),
+    domain,
+    codomain
+  )
 }
 
 //
@@ -539,29 +513,26 @@ export function mapping<D, RTD: Type<D>, C, RTC: Type<C>>(domain: RTD, codomain:
 
 export type Predicate<T> = (value: T) => boolean;
 
-export interface RefinementType<RT> extends Type<TypeOf<RT>> {
-  kind: 'refinement';
+export class RefinementType<RT, T> extends Type<T> {
   type: RT;
-  predicate: Predicate<TypeOf<RT>>;
-}
-
-export function getDefaultRefinementName<T>(type: Type<T>, predicate: Predicate<T>): string {
-  return `(${getTypeName(type)} | ${getFunctionName(predicate)})`
-}
-
-export function refinement<T, RT: Type<T>>(type: RT, predicate: Predicate<TypeOf<RT>>, name?: string): RefinementType<RT> { // eslint-disable-line no-unused-vars
-  return {
-    kind: 'refinement',
-    type,
-    predicate,
-    name: name || getDefaultRefinementName(type, predicate),
-    validate: (v, c) => {
-      return either.chain(
-        t => predicate(t) ? success(t) : failure(v, c),
-        type.validate(v, c)
-      )
-    }
+  predicate: Predicate<T>;
+  constructor(name: string, validate: Validation<T>, type: RT, predicate: Predicate<T>) {
+    super(name, validate)
+    this.type = type
+    this.predicate = predicate
   }
+}
+
+export function refinement<T, RT: Type<T>>(type: RT, predicate: Predicate<T>, name?: string): RefinementType<RT, T> {
+  return new RefinementType(
+    name || `(${getTypeName(type)} | ${getFunctionName(predicate)})`,
+    (v, c) => either.chain(
+      t => predicate(t) ? success(t) : failure(v, c),
+      type.validate(v, c)
+    ),
+    type,
+    predicate
+  )
 }
 
 //
@@ -569,10 +540,7 @@ export function refinement<T, RT: Type<T>>(type: RT, predicate: Predicate<TypeOf
 //
 
 export function recursion<T, RT: Type<T>>(name: string, definition: (self: Type<T>) => RT): RT {
-  const Self = {
-    name,
-    validate: (v, c) => Result.validate(v, c)
-  }
+  const Self = new Type(name, (v, c) => Result.validate(v, c))
   const Result = definition(Self)
   Result.name = name
   return Result
@@ -582,96 +550,91 @@ export function recursion<T, RT: Type<T>>(name: string, definition: (self: Type<
 // $Keys
 //
 
-export interface $KeysType<P: Props> extends Type<$Keys<P>> {
-  kind: '$keys';
-  type: ObjectType<P>;
-}
-
-export function getDefault$KeysName<P: Props>(type: ObjectType<P>): string {
-  return `$Keys<${type.name}>`
-}
-
-export function $keys<P: Props>(type: ObjectType<P>, name?: string): $KeysType<P> {
-  const keys = getObjectKeys(type.props)
-  return {
-    kind: '$keys',
-    type,
-    name: name || getDefault$KeysName(type),
-    validate: (v, c) => {
-      return either.chain(
-        s => keys.hasOwnProperty(v) ? success(s) : failure(v, c),
-        string.validate(v, c)
-      )
-    }
+export class $KeysType<RT, T> extends Type<T> {
+  type: RT;
+  constructor(name: string, validate: Validation<T>, type: RT) {
+    super(name, validate)
+    this.type = type
   }
+}
+
+export function $keys<T, RT: Type<T>>(type: RT, name?: string): $KeysType<RT, $Keys<T>> {
+  const keys = typeof type.props !== 'undefined' && isObject(type.props) ? getObjectKeys(type.props) : null
+  return new $KeysType(
+    name || `$Keys<${type.name}>`,
+    (v, c) => either.chain(
+      k => {
+        if (keys) {
+          return keys.hasOwnProperty(v) ? success(unsafeCoerce(k)) : failure(v, c)
+        }
+        return success(unsafeCoerce(k))
+      },
+      string.validate(v, c)
+    ),
+    type
+  )
 }
 
 //
 // $Exact
 //
 
-export interface $ExactType<P: Props> extends Type<$Exact<$ObjMap<P, <T>(v: Type<T>) => T>>> {
-  kind: '$exact';
+export class $ExactType<P: Props, T> extends Type<T> {
   props: P;
+  constructor(name: string, validate: Validation<T>, props: P) {
+    super(name, validate)
+    this.props = props
+  }
 }
 
-export function getDefault$ExactName(props: Props): string {
-  return `$Exact<${getDefaultObjectName(props)}>`
-}
+export type PropsType<P: Props> = $ObjMap<P, <T>(v: Type<T>) => T>;
 
 // accepts props instead of a generic type because of https://github.com/facebook/flow/issues/2626
-export function $exact<P: Props>(props: P, name?: string): $ExactType<P> {
-  name = name || getDefault$ExactName(props)
+export function $exact<P: Props>(props: P, name?: string): $ExactType<P, $Exact<PropsType<P>>> {
+  name = name || `$Exact<${getDefaultObjectTypeName(props)}>`
   const type = object(props, name)
-  return {
-    kind: '$exact',
-    props,
+  return new $ExactType(
     name,
-    validate: (v, c) => {
-      return either.chain(o => {
-        const errors = checkAdditionalProps(props, o, c)
-        return errors.length ? failures(errors) : success(unsafeCoerce(o))
-      }, type.validate(v, c))
-    }
-  }
+    (v, c) => either.chain(o => {
+      const errors = checkAdditionalProps(props, o, c)
+      return errors.length ? failures(errors) : success(unsafeCoerce(o))
+    }, type.validate(v, c)),
+    props
+  )
 }
 
 //
 // $Shape
 //
 
-export interface $ShapeType<P: Props> extends Type<$Shape<$ObjMap<P, <T>(v: Type<T>) => T>>> {
-  kind: '$shape';
-  type: ObjectType<P>;
+export class $ShapeType<RT, T> extends Type<T> {
+  type: RT;
+  constructor(name: string, validate: Validation<T>, type: RT) {
+    super(name, validate)
+    this.type = type
+  }
 }
 
-export function getDefault$ShapeName<P: Props>(type: ObjectType<P>): string {
-  return `$Shape<${type.name}>`
-}
-
-export function $shape<P: Props>(type: ObjectType<P>, name?: string): $ShapeType<P> {
+export function $shape<P: Props, RT: ObjectType<P, *>>(type: RT, name?: string): $ShapeType<RT, $Shape<PropsType<P>>> {
   const props = type.props
-  return {
-    kind: '$shape',
-    type,
-    name: name || getDefault$ShapeName(type),
-    validate: (v, c) => {
-      return either.chain(o => {
-        const errors = []
-        for (let prop in props) {
-          if (o.hasOwnProperty(prop)) {
-            const type = props[prop]
-            const validation = type.validate(o[prop], c.concat(getContextEntry(prop, type)))
-            if (isFailure(validation)) {
-              pushAll(errors, fromFailure(validation))
-            }
+  return new $ShapeType(
+    name || `$Shape<${type.name}>`,
+    (v, c) => either.chain(o => {
+      const errors = []
+      for (let prop in props) {
+        if (o.hasOwnProperty(prop)) {
+          const type = props[prop]
+          const validation = type.validate(o[prop], c.concat(getContextEntry(prop, type)))
+          if (isFailure(validation)) {
+            pushAll(errors, fromFailure(validation))
           }
         }
-        pushAll(errors, checkAdditionalProps(props, o, c))
-        return errors.length ? failures(errors) : success(o)
-      }, obj.validate(v, c))
-    }
-  }
+      }
+      pushAll(errors, checkAdditionalProps(props, o, c))
+      return errors.length ? failures(errors) : success(o)
+    }, obj.validate(v, c)),
+    type
+  )
 }
 
 //
@@ -680,32 +643,32 @@ export function $shape<P: Props>(type: ObjectType<P>, name?: string): $ShapeType
 
 export type Props = {[key: string]: Type<any>};
 
-export interface ObjectType<P: Props> extends Type<$ObjMap<P, <T>(v: Type<T>) => T>> {
-  kind: 'object';
+export class ObjectType<P: Props, T> extends Type<T> {
   props: P;
+  constructor(name: string, validate: Validation<T>, props: P) {
+    super(name, validate)
+    this.props = props
+  }
 }
 
-export function getDefaultObjectName(props: Props): string {
+function getDefaultObjectTypeName(props: Props): string {
   return `{ ${Object.keys(props).map(k => `${k}: ${props[k].name}`).join(', ')} }`
 }
 
-export function object<P: Props>(props: P, name?: string): ObjectType<P> {
-  return {
-    kind: 'object',
-    props,
-    name: name || getDefaultObjectName(props),
-    validate: (v, c) => {
-      return either.chain(o => {
-        const errors = []
-        for (let k in props) {
-          const type = props[k]
-          const validation = type.validate(o[k], c.concat(getContextEntry(k, type)))
-          if (isFailure(validation)) {
-            pushAll(errors, fromFailure(validation))
-          }
+export function object<P: Props>(props: P, name?: string): ObjectType<P, PropsType<P>> {
+  return new ObjectType(
+    name || getDefaultObjectTypeName(props),
+    (v, c) => either.chain(o => {
+      const errors = []
+      for (let k in props) {
+        const type = props[k]
+        const validation = type.validate(o[k], c.concat(getContextEntry(k, type)))
+        if (isFailure(validation)) {
+          pushAll(errors, fromFailure(validation))
         }
-        return errors.length ? failures(errors) : success(o)
-      }, obj.validate(v, c))
-    }
-  }
+      }
+      return errors.length ? failures(errors) : success(o)
+    }, obj.validate(v, c)),
+    props
+  )
 }

@@ -1,9 +1,9 @@
 # The idea
 
-A value of type `Type<T>` (called "runtime type") is a representation of the type `T`:
+A value of type `Type<T>` (named "runtime type") is a representation of the type `T`:
 
 ```js
-interface Type<T> {
+class Type<T> {
   name: string;
   validate: (value: mixed, context: Context) => ValidationResult<T>;
 }
@@ -21,14 +21,10 @@ type ValidationResult<T> = Either<Array<ValidationError>, T>;
 For example the runtime type representing the type `string` is
 
 ```js
-function isString(v: mixed) /* : boolean %checks */ {
-  return typeof v === 'string'
-}
-
-export const string: Type<string> = {
-  name: 'string',
-  validate: (v, c) => isString(v) ? ...
-}
+export const string: Type<string> = new Type(
+  'string',
+  (value, context) => typeof value === 'string' ? ...
+)
 ```
 
 The type `T` can be extracted from a runtime type
@@ -42,8 +38,7 @@ const Person = t.object({
   age: t.number
 })
 
-// this is equivalent to
-// type PersonT = { name: string, age: number };
+// this is equivalent to `type PersonT = { name: string, age: number };`
 type PersonT = TypeOf<typeof Person>;
 ```
 
@@ -56,8 +51,7 @@ t.unsafeValidate(JSON.parse('{"name":"Giulio","age":43}'), Person)
 // throws Invalid value undefined supplied to : { name: string, age: number }/age: number
 t.unsafeValidate(JSON.parse('{"name":"Giulio"}'), Person)
 
-// doesn't throw, returns a data structure containing
-// the validation errors (Either<)
+// doesn't throw, returns a data structure all validation errors
 const validation = t.validate(JSON.parse('{"name":"Giulio"}'), Person)
 if (t.either.isRight(validation)) {
   const person: PersonT = t.either.fromRight(validation)

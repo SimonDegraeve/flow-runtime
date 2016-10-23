@@ -1,11 +1,29 @@
 // @flow
 
 import type {
+  TypeOf,
+  ContextEntry,
+  Context,
+  ValidationError,
+  ValidationResult,
+  Validation,
   Type,
-  Predicate,
-  Props,
+  LiteralType,
+  InstanceOfType,
+  ClassType,
+  ArrayType,
+  UnionType,
+  TupleType,
+  IntersectionType,
+  MaybeType,
+  MappingType,
+  RefinementType,
+  $KeysType,
+  $ExactType,
+  $ShapeType,
   ObjectType,
-  TypeOf
+  Predicate,
+  Props
 } from './src/index'
 
 import * as t from './src/index'
@@ -97,7 +115,7 @@ t.map(t.validate(1, T5), v5 => {
 const RTI5 = t.union([t.string, t.object({ a: t.number })])
 ;(RTI5.name: string)
 ;(RTI5.types[0]: Type<string>)
-;(RTI5.types[1]: ObjectType<Props>)
+;(RTI5.types[1]: ObjectType<Props, { a: number }>)
 ;(RTI5.types[1].props: Props)
 ;(RTI5.types[1].props.a: Type<number>)
 
@@ -117,7 +135,7 @@ t.map(t.validate(['a', 1], T6), v6 => {
 const RTI6 = t.tuple([t.string, t.object({ a: t.number })])
 ;(RTI6.name: string)
 ;(RTI6.types[0]: Type<string>)
-;(RTI6.types[1]: ObjectType<Props>)
+;(RTI6.types[1]: ObjectType<Props, { a: number }>)
 ;(RTI6.types[1].props: Props)
 ;(RTI6.types[1].props.a: Type<number>)
 
@@ -145,7 +163,7 @@ t.map(t.validate({ a: 1, b: 2 }, T7), v7 => {
 const RTI7 = t.intersection([t.object({ a: t.number }), t.object({ b: t.number })])
 ;(RTI7.name: string)
 ;(RTI7.types[0]: Type<{ a: number }>)
-;(RTI7.types[1]: ObjectType<Props>)
+;(RTI7.types[1]: ObjectType<Props, { b: number }>)
 ;(RTI7.types[1].props: Props)
 ;(RTI7.types[1].props.b: Type<number>)
 
@@ -164,7 +182,7 @@ t.map(t.validate(null, T8), v8 => {
 // runtime type introspection
 const RTI8 = t.maybe(t.object({ a: t.number }))
 ;(RTI8.name: string)
-;(RTI8.type: ObjectType<Props>)
+;(RTI8.type: ObjectType<Props, { a: number }>)
 ;(RTI8.type.props: Props)
 ;(RTI8.type.props.a: Type<number>)
 
@@ -184,7 +202,7 @@ t.map(t.validate(null, T9), v9 => {
 const RTI9 = t.mapping(t.union([t.literal({ value: 'a' }), t.literal({ value: 'b' })]), t.object({ a: t.number }))
 ;(RTI9.name: string)
 ;(RTI9.domain: Type<'a'| 'b'>)
-;(RTI9.codomain: ObjectType<Props>)
+;(RTI9.codomain: ObjectType<Props, { a: number }>)
 ;(RTI9.codomain.props: Props)
 ;(RTI9.codomain.props.a: Type<number>)
 
@@ -203,7 +221,7 @@ t.map(t.validate(1, T10), v10 => {
 // runtime type introspection
 const RTI10 = t.refinement(t.object({ a: t.number }), () => true)
 ;(RTI10.name: string)
-;(RTI10.type: ObjectType<Props>)
+;(RTI10.type: ObjectType<Props, { a: number }>)
 ;(RTI10.type.props: Props)
 ;(RTI10.type.props.a: Type<number>)
 ;(RTI10.predicate: Predicate<{ a: number }>)
@@ -253,7 +271,7 @@ t.map(t.validate('a', T12), v12 => {
 // runtime type introspection
 const RTI12 = t.$keys(t.object({ a: t.number, b: t.number }))
 ;(RTI12.name: string)
-;(RTI12.type: ObjectType<Props>)
+;(RTI12.type: ObjectType<Props, { a: number, b: number }>)
 ;(RTI12.type.props: Props)
 ;(RTI12.type.props.a: Type<number>)
 
@@ -275,6 +293,15 @@ const RTI13 = t.$exact({ a: t.number })
 ;(RTI13.props: Props)
 ;(RTI13.props.a: Type<number>)
 
+// keys
+const KT13 = t.$keys(T13)
+t.map(t.validate('a', KT13), kv13 => {
+  (kv13: 'a')
+  ;(kv13: TypeOf<typeof KT13>)
+  // $ExpectError
+  ;(kv13: number)
+})
+
 //
 // $Shape
 //
@@ -290,9 +317,18 @@ t.map(t.validate({}, T14), v14 => {
 // runtime type introspection
 const RTI14 = t.$shape(t.object({ a: t.number }))
 ;(RTI14.name: string)
-;(RTI14.type: ObjectType<Props>)
+;(RTI14.type: ObjectType<Props, { a: number }>)
 ;(RTI14.type.props: Props)
 ;(RTI14.type.props.a: Type<number>)
+
+// keys
+const KT14 = t.$keys(T14)
+t.map(t.validate('a', KT14), kv14 => {
+  (kv14: 'a')
+  ;(kv14: TypeOf<typeof KT14>)
+  // $ExpectError
+  ;(kv14: number)
+})
 
 //
 // objects
@@ -336,8 +372,17 @@ const RTI15 = t.object({
 ;(RTI15.props: Props)
 ;(RTI15.props.a: Type<number>)
 ;(RTI15.props.b.props.c: Type<string>)
-;(RTI15.props.b.props.d: ObjectType<Props>)
+;(RTI15.props.b.props.d: ObjectType<Props, { e: number }>)
 ;(RTI15.props.b.props.d.props.e: Type<number>)
+
+// keys
+const KT15 = t.$keys(T15)
+t.map(t.validate('a', KT15), kv15 => {
+  (kv15: 'a' | 'b')
+  ;(kv15: TypeOf<typeof KT15>)
+  // $ExpectError
+  ;(kv15: number)
+})
 
 //
 // classOf
